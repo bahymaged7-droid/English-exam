@@ -16,18 +16,22 @@ button.sec,button.tab{background:transparent;color:var(--ac);border-color:var(--
 .it{padding:6px 0;border-bottom:1px solid var(--bd)}.q{margin:12px 0;padding:10px;border:1px dashed var(--bd);border-radius:10px}
 .w{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:15px}th,td{padding:8px;border-bottom:1px solid var(--bd);text-align:left;white-space:nowrap}th{color:var(--mu)}
 .mu{color:var(--mu);font-size:14px}.er{color:var(--no)}details{white-space:normal}summary{cursor:pointer;color:var(--ac)}
+.logo{display:block;margin:0 auto 12px;object-fit:cover;box-shadow:0 8px 24px rgba(0,0,0,.25);max-width:90%}.logo.S{width:110px}.logo.M{width:200px}.logo.L{width:min(90%,320px)}.logo.round{border-radius:50%;aspect-ratio:1}.logo.rounded{border-radius:28px}.logo.rect{border-radius:4px}
 </style></head><body><main>
 <div class="card" id="lg"><h2>Teacher login</h2><input id="em" type="email" placeholder="Email" autocomplete="username"><input id="pw" type="password" placeholder="Password" autocomplete="current-password"><button id="go">Log in</button><p class="er" id="er"></p></div>
 <div id="app" hidden>
-<div class="row"><button class="tab on" id="t1">Scores</button><button class="tab" id="t2">Exams</button><span style="flex:1"></span><button class="sec" id="lo">Log out</button></div>
+<div class="row"><button class="tab on" id="t1">Scores</button><button class="tab" id="t2">Practice &amp; exams</button><button class="tab" id="t3">Lessons</button><button class="tab" id="t4">Landing page</button><span style="flex:1"></span><button class="sec" id="lo">Log out</button></div>
 <div id="v1"><div class="card"><div class="row"><h2 style="margin:0;flex:1">Student scores <span class="mu" id="ct"></span></h2><button id="rf">Refresh</button><button id="dl">Download Excel (CSV)</button></div>
-<div class="row"><input id="q" placeholder="Search by name or section"></div><div class="w"><table><thead><tr><th>Name</th><th>Exams</th><th>Total</th><th>%</th><th>Time</th><th>Written answers</th></tr></thead><tbody id="tb"></tbody></table></div></div></div>
-<div id="v2" hidden></div></div>
+<div class="row"><input id="q" placeholder="Search by name"><select id="gf"></select></div><div class="w"><table><thead><tr><th>Name</th><th>Grade</th><th>Exam</th><th>Score</th><th>%</th><th>Time</th></tr></thead><tbody id="tb"></tbody></table></div></div></div>
+<div id="v2" hidden></div><div id="v3" hidden></div><div id="v4" hidden></div></div>
 <script>
 const DB="https://english-exam-73b64-default-rtdb.europe-west1.firebasedatabase.app",KEY="AIzaSyA5vwsNB_Q5angMowrRIeh5WPnyKM2Yza4";
 const $=s=>document.querySelector(s);
 const h=(t,p,...c)=>{const e=document.createElement(t);for(const k in p||{}){const v=p[k];if(k==='on')for(const ev in v)e.addEventListener(ev,v[ev]);else if(k==='cls')e.className=v;else if(k in e)e[k]=v;else e.setAttribute(k,v)}c.flat().forEach(x=>e.append(x));return e};
-let tok='',rows=[],exams={},active=[],ed=null,edId=null;
+let tok='',rows=[],exams={},active=[],ed=null,edId=null,lessons={},ls=null,lsId=null;
+const grades=[...Array(12)].map((_,i)=>[i+1,'Grade '+(i+1)]),terms=[[1,'Term 1'],[2,'Term 2'],[3,'Term 3']],kinds=[['practice','Practice'],['exam','Exam']];
+const so=(arr,val,fn)=>h('select',{on:{change:e=>fn(e.target.value)}},arr.map(([v,l])=>h('option',{value:v,textContent:l,selected:String(v)===String(val)})));
+$('#gf').append(h('option',{value:'',textContent:'All grades'}),...grades.map(([v,l])=>h('option',{value:v,textContent:l})));
 const fd=t=>new Date(t).toLocaleString('en-GB',{dateStyle:'short',timeStyle:'short'});
 async function api(path,method,body){const r=await fetch(DB+path+'.json?auth='+tok,{method:method||'GET',body:body===undefined?undefined:JSON.stringify(body)});
  if(r.status===401){alert('Your session expired or this account is not allowed. Please log in again.');logout();throw new Error('auth')}
@@ -38,27 +42,25 @@ $('#go').onclick=async()=>{$('#er').textContent='';
  try{const r=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key='+KEY,{method:'POST',body:JSON.stringify({email:$('#em').value.trim(),password:$('#pw').value,returnSecureToken:true})});
  const j=await r.json();if(!r.ok)throw 0;tok=j.idToken;$('#lg').hidden=true;$('#app').hidden=false;tab(1);loadScores();loadExams()}
  catch(e){$('#er').textContent='Incorrect email or password.'}};
-function tab(n){$('#t1').classList.toggle('on',n==1);$('#t2').classList.toggle('on',n==2);$('#v1').hidden=n!=1;$('#v2').hidden=n!=2;if(n==2)loadExams().then(renderExams)}
-$('#t1').onclick=()=>tab(1);$('#t2').onclick=()=>tab(2);
+function tab(n){[1,2,3,4].forEach(i=>{$('#t'+i).classList.toggle('on',n==i);$('#v'+i).hidden=n!=i});if(n==2)loadExams().then(renderExams);if(n==3)loadLessons().then(renderLessons);if(n==4)loadSiteCfg().then(renderSite)}
+$('#t1').onclick=()=>tab(1);$('#t2').onclick=()=>tab(2);$('#t3').onclick=()=>tab(3);$('#t4').onclick=()=>tab(4);
 /* ---------- scores ---------- */
-const parts=r=>r.parts?r.parts.map(p=>p.title+': '+p.sc+'/'+p.tot).join(' · '):'Exam 1: '+r.e1+' · Exam 2: '+r.e2;
+const what=r=>r.title?'Term '+r.term+' · '+(r.kind==='exam'?'Exam':'Practice')+' · '+r.title:(r.parts?r.parts.map(p=>p.title+': '+p.sc+'/'+p.tot).join(' · '):'Exam 1: '+r.e1+' · Exam 2: '+r.e2);
 async function loadScores(){$('#ct').textContent='…';
  try{const j=await api('/results')||{};rows=Object.values(j).sort((a,b)=>b.ts-a.ts);draw()}
  catch(e){$('#ct').textContent='Could not load results. Check the database Rules and the email written in them.'}}
-function draw(){const k=$('#q').value.trim().toLowerCase(),tb=$('#tb');tb.innerHTML='';
- const L=rows.filter(r=>(r.name||'').toLowerCase().includes(k));$('#ct').textContent='('+L.length+')';
- L.forEach(r=>{const tr=document.createElement('tr');
-  [r.name,parts(r),r.total+' / '+r.max,r.pct+'%',fd(r.ts)].forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.appendChild(td)});
-  const d=h('details',{},h('summary',{},'View'));(r.writ||[]).forEach(w=>d.append(h('div',{},w)));tr.append(h('td',{},d));tb.appendChild(tr)})}
-$('#q').oninput=draw;$('#rf').onclick=loadScores;
+const view=()=>{const k=$('#q').value.trim().toLowerCase(),g=$('#gf').value;return rows.filter(r=>(r.name||'').toLowerCase().includes(k)&&(!g||String(r.grade)===g))};
+function draw(){const tb=$('#tb');tb.innerHTML='';const L=view();$('#ct').textContent='('+L.length+')';
+ L.forEach(r=>{const tr=document.createElement('tr');[r.name,r.grade?'Grade '+r.grade:'',what(r),r.total+' / '+r.max,r.pct+'%',fd(r.ts)].forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.appendChild(td)});tb.appendChild(tr)})}
+$('#q').oninput=draw;$('#gf').onchange=draw;$('#rf').onclick=loadScores;
 $('#dl').onclick=()=>{const e=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
- const c=['Name,Exams,Total,Max,Percent,Time'].concat(rows.map(r=>[r.name,parts(r),r.total,r.max,r.pct,fd(r.ts)].map(e).join(',')));
- const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+c.join('\n')],{type:'text/csv;charset=utf-8'}));a.download='year5-english-results.csv';a.click()};
+ const c=['Name,Grade,Exam,Score,Max,Percent,Time'].concat(view().map(r=>[r.name,r.grade,what(r),r.total,r.max,r.pct,fd(r.ts)].map(e).join(',')));
+ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+c.join('\n')],{type:'text/csv;charset=utf-8'}));a.download='results.csv';a.click()};
 /* ---------- exams ---------- */
 async function loadExams(){try{exams=await api('/exams')||{};const a=await api('/config/active');active=Object.values(a||{})}catch(e){}}
 const newQ=t=>({type:t,text:'',o:['','','',''],c:[false,false,false,false],ans:'',kw:''});
 const newSec=()=>({t:'',p:'',q:[newQ('m')]});
-const fromDb=x=>({title:x.title||'',secs:Object.values(x.secs||{}).map(s=>({t:s.t||'',p:s.p||'',q:Object.values(s.q||{}).map(q=>{const n=newQ(q.type);n.text=q.text||'';
+const fromDb=x=>({title:x.title||'',grade:x.grade||1,term:x.term||1,kind:x.kind||'practice',pub:x.pub!==false,secs:Object.values(x.secs||{}).map(s=>({t:s.t||'',p:s.p||'',q:Object.values(s.q||{}).map(q=>{const n=newQ(q.type);n.text=q.text||'';
  if(q.type==='m'){const o=Object.values(q.opts||{});while(o.length<4)o.push('');n.o=o;const a=Object.values(q.ans||{});n.c=o.map((_,i)=>a.includes(i))}
  else if(q.type==='f')n.ans=Object.values(q.ans||{}).join('\n');else n.kw=q.kw||'';return n})}))});
 function toDb(){const t=ed.title.trim();if(!t)throw new Error('Please write the exam title.');let n=0;
@@ -67,36 +69,29 @@ function toDb(){const t=ed.title.trim();if(!t)throw new Error('Please write the 
   if(q.type==='m'){const o=[],a=[];q.o.forEach((x,i)=>{if(x.trim()){if(q.c[i])a.push(o.length);o.push(x.trim())}});if(o.length<2)throw new Error(w+'add at least two options.');if(!a.length)throw new Error(w+'tick the correct option.');return{type:'m',text,opts:o,ans:a}}
   if(q.type==='f'){const a=q.ans.split('\n').map(x=>x.trim()).filter(Boolean);if(!a.length)throw new Error(w+'write at least one accepted answer.');return{type:'f',text,ans:a}}
   return{type:'w',text,kw:q.kw.trim()}})}));
- if(!n)throw new Error('Add at least one question.');return{title:t,ts:Date.now(),secs}}
+ if(!n)throw new Error('Add at least one question.');return{title:t,grade:+ed.grade,term:+ed.term,kind:ed.kind,pub:ed.pub,ts:Date.now(),secs}}
+const meta=x=>'Grade '+(x.grade||'?')+' · Term '+(x.term||'?')+' · '+(x.kind==='exam'?'Exam':'Practice')+(x.pub===false?' · HIDDEN':'');
 function renderExams(){const v=$('#v2'),y=scrollY;v.innerHTML='';if(ed){renderEditor(v);scrollTo(0,y);return}
- const ids=Object.keys(exams).sort((a,b)=>(exams[a].ts||0)-(exams[b].ts||0)),name=id=>exams[id]?exams[id].title:'(deleted)';
- const ac=h('div',{cls:'card'},h('h2',{},'Active exams (students take them in this order)'));
- if(!active.length)ac.append(h('p',{cls:'mu'},'None selected: students currently see the two built-in starter exams.'));
- active.forEach((id,i)=>ac.append(h('div',{cls:'row it'},h('span',{style:'flex:1'},(i+1)+'. '+name(id)),
-  h('button',{cls:'sec',textContent:'↑',on:{click:()=>mv(i,-1)}}),h('button',{cls:'sec',textContent:'↓',on:{click:()=>mv(i,1)}}),
-  h('button',{cls:'sec',textContent:'Remove',on:{click:()=>{active.splice(i,1);saveActive()}}}))));
- const rest=ids.filter(id=>!active.includes(id));
- if(rest.length){const sel=h('select',{},rest.map(id=>h('option',{value:id,textContent:name(id)})));ac.append(h('div',{cls:'row'},sel,h('button',{textContent:'Add to active',on:{click:()=>{active.push(sel.value);saveActive()}}})))}
- v.append(ac);
- const al=h('div',{cls:'card'},h('div',{cls:'row'},h('h2',{style:'margin:0;flex:1'},'All exams'),h('button',{textContent:'New exam',on:{click:()=>edit(null)}}),h('button',{cls:'sec',textContent:'Import starter exams',on:{click:importStarter}})));
- if(!ids.length)al.append(h('p',{cls:'mu'},'No exams yet. Tap “Import starter exams” to load the two exams made from the revision sheet, or create a new one.'));
+ const ids=Object.keys(exams).sort((a,b)=>(exams[a].grade||0)-(exams[b].grade||0)||(exams[a].term||0)-(exams[b].term||0)||(exams[a].ts||0)-(exams[b].ts||0));
+ const al=h('div',{cls:'card'},h('div',{cls:'row'},h('h2',{style:'margin:0;flex:1'},'Practices & exams'),h('button',{textContent:'New',on:{click:()=>edit(null)}}),h('button',{cls:'sec',textContent:'Import starter exams',on:{click:importStarter}})));
+ if(!ids.length)al.append(h('p',{cls:'mu'},'Nothing yet. Tap “New”, or “Import starter exams” to load the two sample exams (they go to Grade 5, Term 1, Practice; you can change that).'));
  ids.forEach(id=>{const x=exams[id],n=Object.values(x.secs||{}).reduce((s,c)=>s+Object.values(c.q||{}).length,0);
-  al.append(h('div',{cls:'row it'},h('span',{style:'flex:1'},x.title+' ',h('span',{cls:'mu'},'('+n+' questions)')),
+  al.append(h('div',{cls:'row it'},h('span',{style:'flex:1'},x.title+' ',h('br'),h('span',{cls:'mu'},meta(x)+' · '+n+' questions')),
    h('button',{cls:'sec',textContent:'Edit',on:{click:()=>edit(id)}}),h('button',{cls:'sec',textContent:'Duplicate',on:{click:()=>dup(id)}}),h('button',{cls:'sec',textContent:'Delete',on:{click:()=>del(id)}})))});
  v.append(al)}
 function mv(i,d){const j=i+d;if(j<0||j>=active.length)return;[active[i],active[j]]=[active[j],active[i]];saveActive()}
 async function saveActive(){try{await api('/config/active','PUT',active.length?active:null)}catch(e){alert('Could not save. Check your connection and the Rules.')}renderExams()}
-function edit(id){edId=id;ed=id?fromDb(exams[id]):{title:'',secs:[newSec()]};renderExams();scrollTo(0,0)}
+function edit(id){edId=id;ed=id?fromDb(exams[id]):{title:'',grade:1,term:1,kind:'practice',pub:true,secs:[newSec()]};renderExams();scrollTo(0,0)}
 async function dup(id){try{const x=JSON.parse(JSON.stringify(exams[id]));x.title+=' (copy)';x.ts=Date.now();await api('/exams','POST',x);await loadExams()}catch(e){alert('Could not duplicate.')}renderExams()}
 async function del(id){if(!confirm('Delete “'+exams[id].title+'”? This cannot be undone.'))return;
  try{await api('/exams/'+id,'DELETE');if(active.includes(id)){active=active.filter(x=>x!==id);await api('/config/active','PUT',active.length?active:null)}await loadExams()}catch(e){alert('Could not delete.')}renderExams()}
 async function importStarter(){if(Object.keys(exams).length&&!confirm('Starter exams will be added again as new copies. Continue?'))return;
- try{const L=await(await fetch('starter-exams.json')).json(),ids=[];for(const x of L){x.ts=Date.now()+ids.length;ids.push((await api('/exams','POST',x)).name)}
-  await loadExams();if(!active.length){active=ids;await api('/config/active','PUT',active)}}catch(e){alert('Could not import the starter exams.')}renderExams()}
+ try{const L=await(await fetch('starter-exams.json')).json(),ids=[];for(const x of L){x.ts=Date.now()+ids.length;x.grade=5;x.term=1;x.kind='practice';x.pub=true;ids.push((await api('/exams','POST',x)).name)}
+  await loadExams()}catch(e){alert('Could not import the starter exams.')}renderExams()}
 async function saveExam(){let x;try{x=toDb()}catch(e){return alert(e.message)}
  try{if(edId){x.ts=exams[edId].ts||x.ts;await api('/exams/'+edId,'PUT',x)}else await api('/exams','POST',x);ed=null;await loadExams();renderExams();scrollTo(0,0)}catch(e){alert('Could not save. Check your connection and the Rules.')}}
 function renderEditor(v){
- v.append(h('div',{cls:'card'},h('h2',{},edId?'Edit exam':'New exam'),h('input',{placeholder:'Exam title, e.g. Exam 3 – Unit 2',value:ed.title,on:{input:e=>ed.title=e.target.value}})));
+ v.append(h('div',{cls:'card'},h('h2',{},edId?'Edit exam':'New exam'),h('input',{placeholder:'Title, e.g. Unit 2 – Present Simple',value:ed.title,on:{input:e=>ed.title=e.target.value}}),h('div',{cls:'row'},so(grades,ed.grade,x=>ed.grade=+x),so(terms,ed.term,x=>ed.term=+x),so(kinds,ed.kind,x=>ed.kind=x),h('label',{},h('input',{type:'checkbox',checked:ed.pub,on:{change:e=>ed.pub=e.target.checked}}),' Visible to students'))));
  ed.secs.forEach((s,si)=>{
   const c=h('div',{cls:'card'},h('div',{cls:'row'},h('b',{style:'flex:1'},'Section '+(si+1)),h('button',{cls:'sec',textContent:'Delete section',on:{click:()=>{if(confirm('Delete this section and its questions?')){ed.secs.splice(si,1);renderExams()}}}})),
    h('input',{placeholder:'Section title, e.g. Reading Comprehension',value:s.t,on:{input:e=>s.t=e.target.value}}),
@@ -112,4 +107,42 @@ function qEd(s,q,qi){
  else if(q.type==='f')d.append(h('textarea',{placeholder:'Accepted answers, one per line (capital letters and punctuation are ignored)',value:q.ans,on:{input:e=>q.ans=e.target.value}}));
  else d.append(h('input',{placeholder:'Word the sentence must contain (optional), e.g. could',value:q.kw,on:{input:e=>q.kw=e.target.value}}));
  return d}
+/* ---------- lessons ---------- */
+async function loadLessons(){try{lessons=await api('/lessons')||{}}catch(e){}}
+function renderLessons(){const v=$('#v3'),y=scrollY;v.innerHTML='';
+ if(ls){v.append(h('div',{cls:'card'},h('h2',{},lsId?'Edit lesson':'New lesson'),
+  h('input',{placeholder:'Lesson title',value:ls.title,on:{input:e=>ls.title=e.target.value}}),
+  h('div',{cls:'row'},so(grades,ls.grade,x=>ls.grade=+x),so(terms,ls.term,x=>ls.term=+x),h('label',{},h('input',{type:'checkbox',checked:ls.pub,on:{change:e=>ls.pub=e.target.checked}}),' Visible to students')),
+  h('textarea',{style:'min-height:220px',placeholder:'Explanation text (a new line starts a new paragraph)',value:ls.body,on:{input:e=>ls.body=e.target.value}}),
+  h('div',{cls:'row'},h('label',{},'PDF file (max 5 MB): ',h('input',{type:'file',accept:'application/pdf',on:{change:pickPdf}})),ls.hadPdf&&!ls.rmPdf?h('span',{cls:'mu'},'Current: '+ls.pdfName):'',ls.hadPdf?h('label',{},h('input',{type:'checkbox',checked:ls.rmPdf,on:{change:e=>ls.rmPdf=e.target.checked}}),' Remove current PDF'):''),
+  h('input',{placeholder:'Optional link (video or worksheet) starting with https://',value:ls.link,on:{input:e=>ls.link=e.target.value}}),
+  h('div',{cls:'row'},h('button',{textContent:'Save lesson',on:{click:saveLesson}}),h('button',{cls:'sec',textContent:'Cancel',on:{click:()=>{ls=null;renderLessons()}}}))));scrollTo(0,y);return}
+ const ids=Object.keys(lessons).sort((a,b)=>(lessons[a].grade||0)-(lessons[b].grade||0)||(lessons[a].term||0)-(lessons[b].term||0)||(lessons[a].ts||0)-(lessons[b].ts||0));
+ const c=h('div',{cls:'card'},h('div',{cls:'row'},h('h2',{style:'margin:0;flex:1'},'Lessons (Explain section)'),h('button',{textContent:'New lesson',on:{click:()=>{lsId=null;ls={title:'',grade:1,term:1,body:'',link:'',pub:true};renderLessons();scrollTo(0,0)}}})));
+ if(!ids.length)c.append(h('p',{cls:'mu'},'No lessons yet.'));
+ ids.forEach(id=>{const x=lessons[id];c.append(h('div',{cls:'row it'},h('span',{style:'flex:1'},x.title,h('br'),h('span',{cls:'mu'},'Grade '+x.grade+' · Term '+x.term+(x.pdf?' · PDF':'')+(x.pub===false?' · HIDDEN':''))),
+  h('button',{cls:'sec',textContent:'Edit',on:{click:()=>{lsId=id;ls={title:x.title||'',grade:x.grade||1,term:x.term||1,body:x.body||'',link:x.link||'',pub:x.pub!==false,hadPdf:!!x.pdf,pdfName:x.pdfName||''};renderLessons();scrollTo(0,0)}}}),
+  h('button',{cls:'sec',textContent:'Delete',on:{click:async()=>{if(!confirm('Delete “'+x.title+'”?'))return;try{await api('/lessons/'+id,'DELETE');try{await api('/pdfs/'+id,'DELETE')}catch(e){}await loadLessons()}catch(e){alert('Could not delete.')}renderLessons()}}})))});
+ v.append(c)}
+function pickPdf(e){const f=e.target.files[0];if(!f)return;
+ if(!/\.pdf$/i.test(f.name)){alert('Please choose a PDF file.');e.target.value='';return}
+ if(f.size>5*1024*1024){alert('This file is larger than 5 MB. Please compress it or split it into two files.');e.target.value='';return}
+ const r=new FileReader();r.onload=()=>{ls.newPdf={name:f.name,b64:String(r.result).split(',')[1]}};r.readAsDataURL(f)}
+async function saveLesson(){const hasPdf=!!(ls.newPdf||(ls.hadPdf&&!ls.rmPdf));
+ if(!ls.title.trim())return alert('Please write the title.');if(!ls.body.trim()&&!hasPdf)return alert('Write the explanation text or attach a PDF.');
+ const x={title:ls.title.trim(),grade:+ls.grade,term:+ls.term,body:ls.body.trim(),link:ls.link.trim(),pub:ls.pub,pdf:hasPdf,pdfName:hasPdf?(ls.newPdf?ls.newPdf.name:ls.pdfName):'',ts:Date.now()};
+ try{let id=lsId;if(id){x.ts=lessons[id].ts||x.ts;await api('/lessons/'+id,'PUT',x)}else id=(await api('/lessons','POST',x)).name;
+  if(ls.newPdf)await api('/pdfs/'+id,'PUT',ls.newPdf);else if(ls.hadPdf&&ls.rmPdf)await api('/pdfs/'+id,'DELETE');
+  ls=null;await loadLessons();renderLessons();scrollTo(0,0)}catch(e){alert('Could not save. Check your connection, the PDF size and the Rules.')}}
+/* ---------- landing page image ---------- */
+let site={img:'',shape:'rounded',size:'L'};
+async function loadSiteCfg(){try{site=Object.assign({img:'',shape:'rounded',size:'L'},await api('/site')||{})}catch(e){}}
+const shrink=f=>new Promise((res,rej)=>{const im=new Image(),u=URL.createObjectURL(f);im.onload=()=>{const k=Math.min(1,700/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);c.getContext('2d').drawImage(im,0,0,c.width,c.height);URL.revokeObjectURL(u);res(c.toDataURL('image/webp',.88))};im.onerror=()=>{alert('Could not read this image.');rej()};im.src=u});
+function renderSite(){const v=$('#v4');v.innerHTML='';
+ const pv=h('div',{style:'text-align:center;padding:16px;border-radius:14px;background:linear-gradient(135deg,#5b5bf0,#9b4dff 55%,#ff6fa5);color:#fff'});
+ const draw=()=>{pv.innerHTML='';pv.append(site.img?h('img',{src:site.img,cls:'logo '+site.shape+' '+site.size,alt:''}):h('span',{},'No image yet'))};draw();
+ v.append(h('div',{cls:'card'},h('h2',{},'Image on the students’ landing page'),pv,
+  h('div',{cls:'row'},h('label',{},'Choose an image: ',h('input',{type:'file',accept:'image/*',on:{change:async e=>{const f=e.target.files[0];if(!f)return;try{site.img=await shrink(f);draw()}catch(x){}}}}))),
+  h('div',{cls:'row'},so([['round','Circle'],['rounded','Rounded rectangle'],['rect','Rectangle']],site.shape,x=>{site.shape=x;draw()}),so([['S','Small'],['M','Medium'],['L','Large']],site.size,x=>{site.size=x;draw()})),
+  h('div',{cls:'row'},h('button',{textContent:'Save',on:{click:async()=>{try{await api('/site','PUT',site);alert('Saved. Students will see it the next time they open the page.')}catch(e){alert('Could not save. Check the Rules.')}}}}),h('button',{cls:'sec',textContent:'Remove image',on:{click:()=>{site.img='';draw()}}}))))}
 </script></main></body></html>
